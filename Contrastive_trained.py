@@ -1,3 +1,48 @@
+def predict(self, test_df: pd.DataFrame) -> pd.DataFrame:
+    """Optimized batch prediction"""
+    batch_size = self.batch_size
+    results = []
+    
+    # Process in batches
+    for start_idx in tqdm(range(0, len(test_df), batch_size)):
+        batch_df = test_df.iloc[start_idx:start_idx + batch_size]
+        
+        # Batch encode all texts at once
+        texts = [f"{row['attribute_name']}: {row['description']}" 
+                for _, row in batch_df.iterrows()]
+        
+        encoded = self.tokenizer(
+            texts,
+            max_length=512,
+            truncation=True,
+            padding=True,
+            return_tensors='pt'
+        ).to(self.device)
+        
+        # Get embeddings for entire batch
+        with torch.no_grad():
+            batch_embeddings = self.model.encode(
+                encoded['input_ids'],
+                encoded['attention_mask']
+            )
+            
+            # Calculate similarities for batch
+            batch_results = []
+            for text_emb in batch_embeddings:
+                scores = {}
+                for label, def_embeddings in self.definition_embeddings.items():
+                    label_scores = [
+                        torch.nn.functional.cosine_similarity(
+                            text_emb.unsqueeze(0), def_emb
+                        ).item()
+                        for def_emb in def_embeddings
+                    ]
+                    scores[label] = max(label_scores)
+                batch_results.append(scores)
+            
+            results.extend(batch_results)
+
+
 import torch
 from torch import nn
 import pandas as pd
